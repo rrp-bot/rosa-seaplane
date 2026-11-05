@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Architecture proposal for a centrally managed, pre-warmed pool of ROSA Seaplane ephemeral environments.">
+  <meta name="theme-color" content="#101d2d">
+  <title>Ephemeral Environment Pool Manager — Architecture Proposal</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #17283c;
+      --muted: #53677d;
+      --paper: #f5f8fb;
+      --card: #fff;
+      --line: #dce5ec;
+      --navy: #101d2d;
+      --navy-2: #192c40;
+      --teal: #087e83;
+      --teal-soft: #e5f6f3;
+      --lime: #c8ef80;
+      --blue: #4169a1;
+      --blue-soft: #eaf0f8;
+      --amber: #a86216;
+      --amber-soft: #fff3df;
+      --red: #a43a42;
+      --shadow: 0 18px 55px rgba(28, 50, 72, .09);
+      --radius: 18px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font: 16px/1.65 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    a { color: var(--teal); text-underline-offset: 3px; }
+    a:hover { color: #045b60; }
+    .hero {
+      position: relative;
+      overflow: hidden;
+      color: #f5fbff;
+      background:
+        radial-gradient(ellipse at 83% 12%, rgba(67, 188, 168, .24), transparent 34%),
+        radial-gradient(ellipse at 5% 100%, rgba(200, 239, 128, .12), transparent 38%),
+        linear-gradient(125deg, #101d2d 0%, #14283b 58%, #183b49 100%);
+      padding: 64px 24px 76px;
+    }
+    .hero::after {
+      content: "";
+      position: absolute;
+      width: 470px;
+      height: 470px;
+      right: -180px;
+      bottom: -330px;
+      border: 1px solid rgba(231, 249, 245, .16);
+      border-radius: 50%;
+      box-shadow: 0 0 0 42px rgba(231, 249, 245, .025), 0 0 0 86px rgba(231, 249, 245, .025);
+      pointer-events: none;
+    }
+    .hero-inner, main, footer { width: min(1120px, calc(100% - 40px)); margin-inline: auto; }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      color: #c8efdd;
+      font-size: .76rem;
+      font-weight: 750;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+    .eyebrow::before { content: ""; width: 25px; height: 2px; background: var(--lime); }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 {
+      max-width: 850px;
+      margin: 18px 0 18px;
+      font: 500 clamp(2.6rem, 6.4vw, 5.2rem)/1.03 Georgia, "Times New Roman", serif;
+      letter-spacing: -.045em;
+    }
+    .hero-summary { max-width: 730px; color: #d1dce6; font-size: clamp(1rem, 2vw, 1.2rem); }
+    .hero-meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 30px; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 12px;
+      border: 1px solid rgba(255,255,255,.2);
+      border-radius: 99px;
+      color: #eaf4f6;
+      background: rgba(255,255,255,.055);
+      font-size: .82rem;
+    }
+    .pill strong { color: var(--lime); font-weight: 700; }
+    .layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 42px; padding-top: 42px; padding-bottom: 72px; }
+    .toc { align-self: start; position: sticky; top: 22px; padding: 18px 0; }
+    .toc-label { margin: 0 0 12px; color: #76899b; font-size: .72rem; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
+    .toc a { display: block; padding: 6px 0 6px 13px; border-left: 1px solid var(--line); color: #52677b; font-size: .86rem; text-decoration: none; }
+    .toc a:hover { border-left: 2px solid var(--teal); color: var(--teal); }
+    article { min-width: 0; }
+    section { scroll-margin-top: 26px; margin: 0 0 54px; }
+    .section-kicker { margin: 0 0 6px; color: var(--teal); font-size: .72rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    h2 { margin-bottom: 16px; font: 500 clamp(1.8rem, 3.7vw, 2.7rem)/1.14 Georgia, "Times New Roman", serif; letter-spacing: -.025em; }
+    h3 { margin-bottom: 8px; font-size: 1rem; line-height: 1.35; }
+    .lead { max-width: 820px; color: var(--muted); font-size: 1.08rem; }
+    .card { padding: 23px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); box-shadow: var(--shadow); }
+    .callout { padding: 20px 22px; border-left: 4px solid var(--teal); border-radius: 0 14px 14px 0; background: var(--teal-soft); }
+    .callout p:last-child, .card p:last-child { margin-bottom: 0; }
+    .callout strong { color: #075d62; }
+    .grid-2, .grid-3 { display: grid; gap: 16px; }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .feature { padding: 21px; border: 1px solid var(--line); border-radius: 15px; background: #fff; }
+    .feature .number { display: inline-grid; place-items: center; width: 31px; height: 31px; margin-bottom: 13px; border-radius: 10px; color: #075d62; background: var(--teal-soft); font-weight: 800; font-size: .82rem; }
+    .feature p { margin-bottom: 0; color: var(--muted); font-size: .91rem; }
+    .diagram-shell { padding: 23px; border: 1px solid #d9e4e8; border-radius: 20px; background: linear-gradient(145deg, #fff, #f4faf9); box-shadow: var(--shadow); }
+    .diagram-title { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; margin-bottom: 19px; }
+    .diagram-title h3 { margin: 0; }
+    .diagram-title span { color: var(--muted); font-size: .78rem; }
+    .architecture { display: grid; grid-template-columns: 1fr 38px 1.1fr 38px 1.2fr; align-items: stretch; gap: 8px; }
+    .arch-column { display: grid; align-content: start; gap: 10px; }
+    .arch-label { margin: 0 0 2px; color: #718394; font-size: .68rem; font-weight: 800; letter-spacing: .11em; text-transform: uppercase; }
+    .arch-box { min-height: 76px; padding: 13px 14px; border: 1px solid #dce6eb; border-radius: 13px; background: #fff; }
+    .arch-box b { display: block; margin-bottom: 2px; font-size: .88rem; }
+    .arch-box small { display: block; color: var(--muted); line-height: 1.45; }
+    .arch-box.teal { border-color: #a8ddd4; background: #effaf7; }
+    .arch-box.blue { border-color: #cbd8e9; background: #f1f5fb; }
+    .arch-box.dark { border-color: #294256; color: #f4fafb; background: #183044; }
+    .arch-box.dark small { color: #c7d8e2; }
+    .arch-box.amber { border-color: #f0d7ae; background: #fff8ec; }
+    .arrow { align-self: center; color: #5a8f91; font-size: 1.6rem; text-align: center; }
+    .account-boundary { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; padding: 10px; border: 1px dashed #9ab6c0; border-radius: 15px; background: rgba(255,255,255,.52); }
+    .account-boundary .arch-label { grid-column: 1/-1; }
+    .account-boundary .arch-box { min-height: 83px; }
+    .caption { margin: 15px 0 0; color: #718394; font-size: .78rem; }
+    .flow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; counter-reset: flow; }
+    .flow-step { position: relative; padding: 18px 15px; border: 1px solid var(--line); border-radius: 15px; background: #fff; }
+    .flow-step::before { counter-increment: flow; content: "0" counter(flow); display: block; margin-bottom: 14px; color: var(--teal); font: 700 .8rem ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .flow-step:not(:last-child)::after { content: "›"; position: absolute; right: -10px; top: 45%; z-index: 2; display: grid; place-items: center; width: 20px; height: 24px; color: var(--teal); background: var(--paper); font-size: 1.45rem; }
+    .flow-step h3 { font-size: .88rem; }
+    .flow-step p { margin: 0; color: var(--muted); font-size: .8rem; line-height: 1.5; }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 15px; background: #fff; }
+    table { width: 100%; border-collapse: collapse; text-align: left; }
+    th, td { padding: 13px 15px; border-bottom: 1px solid #e8edf1; vertical-align: top; }
+    th { color: #607486; background: #f5f8fa; font-size: .7rem; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+    td { font-size: .88rem; }
+    tr:last-child td { border-bottom: 0; }
+    code { padding: .14em .38em; border: 1px solid #e1e8ec; border-radius: 5px; color: #235b66; background: #f2f7f8; font: .88em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: nowrap; }
+    .state { display: inline-block; padding: 3px 8px; border-radius: 99px; color: #315b4a; background: #e8f5ee; font-size: .75rem; font-weight: 750; white-space: nowrap; }
+    .state.busy { color: #7d5217; background: var(--amber-soft); }
+    .state.fail { color: #8b3339; background: #fbeaec; }
+    .endpoint-list { display: grid; gap: 9px; }
+    .endpoint { display: grid; grid-template-columns: 78px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+    .method { padding: 3px 7px; border-radius: 6px; color: #075d62; background: var(--teal-soft); font: 800 .67rem ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; }
+    .endpoint p { margin: 0; color: var(--muted); font-size: .82rem; }
+    .endpoint code { color: var(--ink); background: transparent; border: 0; padding: 0; font-size: .83rem; }
+    .auth-note { color: #778899; font-size: .74rem; }
+    .security-list, .plain-list { margin: 0; padding-left: 20px; }
+    .security-list li, .plain-list li { margin: 8px 0; }
+    .security-list li::marker { color: var(--teal); }
+    .warning { padding: 20px 22px; border: 1px solid #edd5aa; border-radius: 15px; background: var(--amber-soft); }
+    .warning h3 { color: #825218; }
+    .warning p { margin: 0; color: #755a36; }
+    .phase { display: grid; grid-template-columns: 115px minmax(0, 1fr); gap: 16px; padding: 18px 0; border-bottom: 1px solid var(--line); }
+    .phase:last-child { border-bottom: 0; }
+    .phase-tag { align-self: start; width: fit-content; padding: 5px 9px; border-radius: 7px; color: #305e5b; background: var(--teal-soft); font-size: .73rem; font-weight: 800; }
+    .phase h3 { margin: 0 0 5px; }
+    .phase p { margin: 0; color: var(--muted); font-size: .9rem; }
+    .decision { padding: 17px 19px; border: 1px solid var(--line); border-radius: 13px; background: #fff; }
+    .decision b { display: block; margin-bottom: 4px; }
+    .decision p { margin: 0; color: var(--muted); font-size: .88rem; }
+    .footer { padding: 23px 0 44px; border-top: 1px solid var(--line); color: #708294; font-size: .78rem; }
+    .footer strong { color: var(--ink); }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; gap: 12px; }
+      .toc { position: static; display: flex; flex-wrap: wrap; gap: 5px 15px; padding: 0 0 20px; }
+      .toc-label { width: 100%; }
+      .toc a { padding: 3px 0; border: 0; }
+      .architecture { grid-template-columns: 1fr; }
+      .arrow { transform: rotate(90deg); line-height: 1; }
+      .arch-column { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .arch-label { grid-column: 1/-1; }
+      .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .flow-step:not(:last-child)::after { content: "↓"; right: 8px; top: auto; bottom: -14px; }
+    }
+    @media (max-width: 600px) {
+      .hero { padding: 48px 0 55px; }
+      .hero-inner, main, footer { width: min(100% - 30px, 1120px); }
+      .layout { padding-top: 26px; }
+      .grid-2, .grid-3 { grid-template-columns: 1fr; }
+      .arch-column, .account-boundary { grid-template-columns: 1fr; }
+      .account-boundary .arch-label { grid-column: auto; }
+      .flow { grid-template-columns: 1fr; }
+      .flow-step:not(:last-child)::after { content: "↓"; right: 10px; bottom: -16px; }
+      .endpoint { grid-template-columns: 62px minmax(0, 1fr); }
+      .auth-note { grid-column: 2; }
+      .phase { grid-template-columns: 1fr; gap: 8px; }
+      .diagram-shell, .card { padding: 17px; }
+      section { margin-bottom: 42px; }
+    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-inner">
+      <div class="eyebrow">Architecture proposal · Rosa Seaplane</div>
+      <h1>Ephemeral environments,<br>ready when you are.</h1>
+      <p class="hero-summary">A centrally managed service for pre-warmed environment pools—so teams can check out a live environment, test a GitHub branch, and release it without carrying the provisioning burden themselves.</p>
+      <div class="hero-meta">
+        <span class="pill"><strong>Proposal</strong> · for technical planning</span>
+        <span class="pill">Updated · 5 November 2026</span>
+        <span class="pill">Proposed home · new repository</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="layout">
+    <nav class="toc" aria-label="Table of contents">
+      <p class="toc-label">In this report</p>
+      <a href="#summary">Executive summary</a>
+      <a href="#today">Starting point</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#lifecycle">Environment lifecycle</a>
+      <a href="#api">API proposal</a>
+      <a href="#capacity">Pool capacity</a>
+      <a href="#security">Ownership &amp; security</a>
+      <a href="#delivery">Delivery plan</a>
+      <a href="#decisions">Open decisions</a>
+    </nav>
+
+    <article>
+      <section id="summary">
+        <p class="section-kicker">01 · The proposition</p>
+        <h2>Keep the slow part warm.<br>Make the useful part self-service.</h2>
+        <p class="lead">Provision a configurable number of complete baseline environments ahead of demand. An authenticated API reserves one, applies the requested repository and branch, and gives the caller a checkout. Releasing the checkout destroys that environment; a reconciler builds a clean replacement.</p>
+        <div class="callout">
+          <p><strong>Recommended shape:</strong> a small control plane in a new repository, deployed to the environment’s central account. It owns the pool inventory and schedules long-running work through durable workflows. It reuses the existing ephemeral provider wherever practical rather than reimplementing Terraform and GitOps orchestration.</p>
+        </div>
+      </section>
+
+      <section id="today">
+        <p class="section-kicker">02 · Starting point</p>
+        <h2>Build on the lifecycle that already works.</h2>
+        <p class="lead">The current developer workflow has most of the expensive lifecycle logic, but it is driven from a workstation and tracks environments in a local file. The manager adds shared inventory, asynchronous orchestration, and controlled access.</p>
+        <div class="grid-3">
+          <div class="feature"><span class="number">A</span><h3>Provision</h3><p><code>ci/ephemeral-provider</code> creates an environment-specific Git branch, bootstraps its pipeline, and waits for regional and management provisioning.</p></div>
+          <div class="feature"><span class="number">B</span><h3>Redirect &amp; resync</h3><p>The local CLI can swap an environment to a repository/branch and resync it, so a pre-warmed baseline can be prepared for a checkout.</p></div>
+          <div class="feature"><span class="number">C</span><h3>Teardown</h3><p>The provider purges platform resources, tears down infrastructure and its pipeline, and removes the managed CI branch on successful cleanup.</p></div>
+        </div>
+        <p style="margin-top:16px;color:var(--muted);font-size:.9rem">Today, <code>scripts/dev/ephemeral-env.sh</code> is a local wrapper and <code>.ephemeral-envs</code> is local state. Neither should become the service’s source of truth.</p>
+      </section>
+
+      <section id="architecture">
+        <p class="section-kicker">03 · Proposed system</p>
+        <h2>A thin API; durable orchestration underneath.</h2>
+        <p class="lead">Keep request handling short and move provisioning, resync, and teardown into tracked background operations. Use the existing provider as the lifecycle engine, packaged in a controlled worker runtime.</p>
+        <div class="diagram-shell" role="img" aria-label="Architecture: callers reach API Gateway and Lambda. DynamoDB stores pool and environment state. Step Functions and SQS coordinate provider jobs executed in CodeBuild or ECS tasks. EventBridge invokes the capacity reconciler. The worker assumes scoped roles into configured regional and management accounts.">
+          <div class="diagram-title"><h3>Control plane &amp; execution plane</h3><span>Central account deployment · explicit target-account configuration</span></div>
+          <div class="architecture">
+            <div class="arch-column">
+              <p class="arch-label">Callers &amp; policy</p>
+              <div class="arch-box dark"><b>Internal clients</b><small>Test systems, CI jobs, and authorized users</small></div>
+              <div class="arch-box"><b>Pool configuration</b><small>Baseline, allowed repos, capacity schedule, target accounts</small></div>
+            </div>
+            <div class="arrow" aria-hidden="true">→</div>
+            <div class="arch-column">
+              <p class="arch-label">Control plane · central account</p>
+              <div class="arch-box teal"><b>API Gateway + authorizer</b><small>Authenticate callers; enforce owner/admin permissions</small></div>
+              <div class="arch-box teal"><b>API &amp; reconciler functions</b><small>Reserve, validate, report state, maintain desired capacity</small></div>
+              <div class="arch-box blue"><b>DynamoDB registry</b><small>Pools · environment ownership · leases · operation state</small></div>
+              <div class="arch-box blue"><b>Step Functions + SQS</b><small>Retries, concurrency limits, timeouts, durable operation tracking</small></div>
+            </div>
+            <div class="arrow" aria-hidden="true">→</div>
+            <div class="arch-column">
+              <p class="arch-label">Lifecycle &amp; targets</p>
+              <div class="arch-box amber"><b>EventBridge schedule</b><small>Day/night capacity changes and reconciliation triggers</small></div>
+              <div class="arch-box dark"><b>CodeBuild or ECS worker</b><small>Runs a pinned provider image; emits status and logs</small></div>
+              <div class="arch-box"><b>Existing ephemeral provider</b><small>Git branch, bootstrap pipelines, Terraform, resync, purge, teardown</small></div>
+              <div class="account-boundary">
+                <p class="arch-label">Explicitly configured target accounts</p>
+                <div class="arch-box"><b>Regional account</b><small>Environment resources &amp; state</small></div>
+                <div class="arch-box"><b>Management account</b><small>Environment resources &amp; state</small></div>
+              </div>
+            </div>
+          </div>
+          <p class="caption">The central account hosts the service. A worker may operate only on target accounts and environment records configured and owned by that service instance.</p>
+        </div>
+        <div class="grid-2" style="margin-top:16px">
+          <div class="card"><h3>Fast front door</h3><p style="color:var(--muted);font-size:.9rem">API calls return an operation ID and status URL. The caller does not wait on Terraform or a CodePipeline execution.</p></div>
+          <div class="card"><h3>Long-running work stays durable</h3><p style="color:var(--muted);font-size:.9rem">Step Functions/SQS coordinate retries and concurrency. CodeBuild or ECS runs jobs that can exceed Lambda’s execution limit.</p></div>
+        </div>
+      </section>
+
+      <section id="lifecycle">
+        <p class="section-kicker">04 · Lifecycle</p>
+        <h2>One environment, one owner, one clear path.</h2>
+        <div class="flow" aria-label="Lifecycle steps">
+          <div class="flow-step"><h3>Maintain baseline</h3><p>Reconciler provisions unique environment IDs until the pool has its desired number ready.</p></div>
+          <div class="flow-step"><h3>Reserve atomically</h3><p>One available record transitions to checkout-pending in a conditional transaction.</p></div>
+          <div class="flow-step"><h3>Apply requested ref</h3><p>Provider swaps/resyncs to the approved repository and branch; service records the resolved commit SHA.</p></div>
+          <div class="flow-step"><h3>Use &amp; operate</h3><p>Checkout owner can request a branch change or resync and can inspect operation status.</p></div>
+          <div class="flow-step"><h3>Release &amp; replace</h3><p>Release triggers teardown. Only after confirmed cleanup does reconciliation create a fresh baseline.</p></div>
+        </div>
+        <div style="margin-top:22px" class="table-wrap">
+          <table>
+            <thead><tr><th>State</th><th>Meaning</th><th>Available for checkout?</th></tr></thead>
+            <tbody>
+              <tr><td><span class="state">provisioning</span></td><td>Baseline is being created.</td><td>No</td></tr>
+              <tr><td><span class="state">available</span></td><td>Provisioned baseline, unassigned, and healthy.</td><td>Yes</td></tr>
+              <tr><td><span class="state busy">checkout-pending</span></td><td>Reserved; requested branch is being applied.</td><td>No</td></tr>
+              <tr><td><span class="state busy">checked-out</span></td><td>Assigned to one authenticated owner; updates may be running.</td><td>No</td></tr>
+              <tr><td><span class="state busy">releasing</span></td><td>Being purged and destroyed after release or expiry.</td><td>No</td></tr>
+              <tr><td><span class="state fail">quarantined</span></td><td>Provisioning, update, or cleanup failed or has uncertain outcome.</td><td>No</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="margin-top:13px;color:var(--muted);font-size:.88rem">A failed teardown must never put an environment back into the ready pool. Quarantined resources require an observable retry or operator-reviewed cleanup path.</p>
+      </section>
+
+      <section id="api">
+        <p class="section-kicker">05 · API contract</p>
+        <h2>Small surface area, asynchronous by default.</h2>
+        <p class="lead">Use a checkout as the caller’s ownership handle. Return <code>202 Accepted</code> plus an operation resource for actions that launch provider work.</p>
+        <div class="endpoint-list">
+          <div class="endpoint"><span class="method">POST</span><code>/v1/checkouts</code><p>Reserve a ready environment; optionally request repository and branch.</p><span class="auth-note">Caller</span></div>
+          <div class="endpoint"><span class="method">GET</span><code>/v1/checkouts/{id}</code><p>Read assignment, environment details, current ref, and status.</p><span class="auth-note">Owner / admin</span></div>
+          <div class="endpoint"><span class="method">POST</span><code>/v1/checkouts/{id}/branch</code><p>Swap to an approved repository and branch.</p><span class="auth-note">Owner / admin</span></div>
+          <div class="endpoint"><span class="method">POST</span><code>/v1/checkouts/{id}/resync</code><p>Apply the latest source ref and configured environment changes.</p><span class="auth-note">Owner / admin</span></div>
+          <div class="endpoint"><span class="method">POST</span><code>/v1/checkouts/{id}/release</code><p>Release ownership and begin destruction; do not reuse the environment.</p><span class="auth-note">Owner / admin</span></div>
+          <div class="endpoint"><span class="method">GET</span><code>/v1/operations/{id}</code><p>Poll provisioning, branch update, resync, or teardown result.</p><span class="auth-note">Authorized caller</span></div>
+        </div>
+        <p style="margin-top:12px;color:var(--muted);font-size:.88rem">Admin-only endpoints can report pool capacity and trigger carefully scoped maintenance actions. Use idempotency keys for checkout and release requests to make retries safe.</p>
+      </section>
+
+      <section id="capacity">
+        <p class="section-kicker">06 · Capacity policy</p>
+        <h2>Schedule the ready floor; cap the total fleet.</h2>
+        <div class="grid-2">
+          <div class="card">
+            <h3>Pool settings</h3>
+            <ul class="plain-list" style="color:var(--muted);font-size:.9rem">
+              <li>Day and overnight minimum ready counts, with timezone and weekday policy.</li>
+              <li>Maximum total environments and maximum simultaneous provisioning jobs.</li>
+              <li>Baseline repository/ref, config version, region, and allowed target accounts.</li>
+              <li>Approved repositories, maximum checkout duration, and idle lease policy.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Reconciliation rules</h3>
+            <ul class="plain-list" style="color:var(--muted);font-size:.9rem">
+              <li>Count only healthy, unassigned <em>available</em> environments toward the ready floor.</li>
+              <li>Provision asynchronously to fill a deficit, respecting concurrency and total caps.</li>
+              <li>When the floor drops, remove idle available capacity first; never interrupt active checkouts.</li>
+              <li>Failed or stale jobs are surfaced and quarantined instead of silently counted as ready.</li>
+            </ul>
+          </div>
+        </div>
+        <div class="callout" style="margin-top:16px;background:var(--blue-soft);border-color:var(--blue)">
+          <p><strong style="color:#345481">Capacity is not instantaneous.</strong> Scheduling raises the target ready count, while provisioning still takes time. Record time-to-ready and checkout wait time so the pilot can tune the pool size against actual demand and cost.</p>
+        </div>
+      </section>
+
+      <section id="security">
+        <p class="section-kicker">07 · Ownership &amp; security</p>
+        <h2>Make the inventory the authority to act.</h2>
+        <p class="lead">“Only the environments it controls” must be enforced by design, not by trusting a caller-provided ID or relying on resource naming alone.</p>
+        <div class="grid-2">
+          <div class="card">
+            <h3>Non-negotiable boundaries</h3>
+            <ul class="security-list" style="font-size:.9rem">
+              <li>Generate environment IDs server-side. Every operation resolves to a manager-owned registry record.</li>
+              <li>Fix the target account and region allowlist in service configuration; never accept account IDs from callers.</li>
+              <li>Before destructive work, verify pool ownership, reserved prefix, and recorded Terraform state locations.</li>
+              <li>Bind each checkout to an authenticated principal. Restrict updates and release to that owner or an administrator.</li>
+              <li>Validate and allowlist GitHub repositories/refs; record source commit SHA and audit actor/action.</li>
+              <li>Use a managed GitHub App credential or similarly scoped bot credential in the worker, not a caller token.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Recommended account boundary</h3>
+            <p style="color:var(--muted);font-size:.9rem">Deploy the API and orchestration in the central account. Give the worker dedicated roles that can reach only explicitly configured regional and management accounts. Apply resource-prefix, tag, and state-key restrictions wherever AWS supports them.</p>
+            <p style="color:var(--muted);font-size:.9rem">If the existing Terraform and bootstrap roles cannot be narrowed safely in shared accounts, use target accounts dedicated to the managed pool. Review account-wide primitives and quotas before expanding concurrency.</p>
+          </div>
+        </div>
+        <div class="warning" style="margin-top:16px">
+          <h3>Important existing constraint · broad role assumption</h3>
+          <p>The current provider uses <code>OrganizationAccountAccessRole</code> in its cross-account path. That is broader than a strict manager-only boundary. The implementation must replace or constrain this trust path before claiming that the service can affect only its own environments.</p>
+        </div>
+      </section>
+
+      <section id="delivery">
+        <p class="section-kicker">08 · Delivery path</p>
+        <h2>Prove the warm-pool workflow before scaling it.</h2>
+        <div class="card">
+          <div class="phase"><span class="phase-tag">Phase 1 · Validate</span><div><h3>Run a two-environment lifecycle spike</h3><p>Provision baseline environments, then test checkout, branch swap, resync, release, teardown failure, and replacement. Measure provisioning duration, steady-state cost, and shared-account limits.</p></div></div>
+          <div class="phase"><span class="phase-tag">Phase 2 · Specify</span><div><h3>Lock down contracts and safety</h3><p>Define API schema, pool config, states, ownership, auth, GitHub restrictions, leases, idempotency, role boundaries, and failure recovery.</p></div></div>
+          <div class="phase"><span class="phase-tag">Phase 3 · Build</span><div><h3>Create the standalone control plane</h3><p>New repository for API, infrastructure-as-code, workflow definitions, registry model, worker image, deployment instructions, and operational dashboards.</p></div></div>
+          <div class="phase"><span class="phase-tag">Phase 4 · Integrate</span><div><h3>Package and pin the provider</h3><p>Expose structured service inputs/results; keep the provider as the lifecycle engine. Make worker versions traceable and repeatable instead of shelling out to local Make targets.</p></div></div>
+          <div class="phase"><span class="phase-tag">Phase 5 · Pilot</span><div><h3>Start with one capped pool</h3><p>Enable a small daytime/overnight schedule, test IAM and cleanup failure paths, tune from latency and cost metrics, then expand gradually.</p></div></div>
+        </div>
+        <div class="grid-3" style="margin-top:16px">
+          <div class="feature"><h3>Reliability signals</h3><p>Provision/resync/teardown success rate, quarantined count, stale operations, job retries.</p></div>
+          <div class="feature"><h3>Experience signals</h3><p>Ready pool depth, checkout wait and time-to-ready percentiles, lease age, branch-update latency.</p></div>
+          <div class="feature"><h3>Cost signals</h3><p>Environment hours by pool and owner, idle-ready hours, replacement rate, account spend.</p></div>
+        </div>
+      </section>
+
+      <section id="decisions">
+        <p class="section-kicker">09 · Decisions to settle</p>
+        <h2>Questions for the design review.</h2>
+        <div class="grid-2">
+          <div class="decision"><b>Where do pooled environments live?</b><p>Shared development target accounts with restricted roles, or dedicated regional/management accounts for the pool?</p></div>
+          <div class="decision"><b>Who can check out?</b><p>Which internal identities and CI workloads are allowed, and what identity provider/authorizer should the API use?</p></div>
+          <div class="decision"><b>What can be built?</b><p>Which repositories, organizations, and branch/ref patterns are trusted to run through the environment pipelines?</p></div>
+          <div class="decision"><b>What is the capacity envelope?</b><p>Day/night ready counts, timezone, weekends, maximum total fleet, concurrent builds, and cost ceiling?</p></div>
+          <div class="decision"><b>How is the provider versioned?</b><p>Worker image built from a release in rosa-seaplane, a versioned package, or another immutable artifact?</p></div>
+          <div class="decision"><b>What is the cleanup policy?</b><p>Maximum checkout age, abandoned lease behavior, retry window, and who can inspect or force-clean quarantined environments?</p></div>
+        </div>
+      </section>
+
+      <section>
+        <div class="callout">
+          <p><strong>Outcome:</strong> a reusable, centrally operated pool can reduce the wait before tests start while preserving a clean environment per checkout. The core trade-off is deliberate: keep baseline infrastructure running to improve checkout latency, but destroy every returned environment and restore capacity asynchronously.</p>
+        </div>
+      </section>
+    </article>
+  </main>
+
+  <footer class="footer">
+    <div style="width:min(1120px,calc(100% - 40px));margin:auto">
+      <strong>Ephemeral Environment Pool Manager</strong> · Architecture proposal · 2026-11-05<br>
+      Based on the existing Rosa Seaplane ephemeral provider and developer workflow. This report proposes a design; account policy, identity integration, and capacity values require review before implementation.
+    </div>
+  </footer>
+</body>
+</html>
