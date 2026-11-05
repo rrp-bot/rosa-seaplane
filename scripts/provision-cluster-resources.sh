@@ -19,6 +19,8 @@
 set -euo pipefail
 trap 'echo "FAILED: line $LINENO, exit code $?" >&2' ERR
 
+source "$(dirname "${BASH_SOURCE[0]}")/pipeline-common/image-registry.sh"
+
 echo "Provisioning cluster CodeBuild and CodePipeline resources for ${ENVIRONMENT:-staging}"
 
 # Match the conditional FIPS endpoint policy of the Terraform-managed pipelines
@@ -654,8 +656,13 @@ create_cluster_resource() {
         echo "ERROR: Missing CodeBuild service role ARN for $cluster_type cluster $CLUSTER_PROJECT_ID" >&2
         return 1
     fi
-    if ! PLATFORM_IMAGE=$(jq -er '.platform_image // empty' "$config_path"); then
+    local platform_image_ref
+    if ! platform_image_ref=$(jq -er '.platform_image // empty' "$config_path"); then
         echo "ERROR: platform_image is missing from $config_path" >&2
+        return 1
+    fi
+    if ! PLATFORM_IMAGE=$(resolve_platform_image "$platform_image_ref" "$AWS_REGION"); then
+        echo "ERROR: Failed to resolve platform_image from SSM-backed image registry" >&2
         return 1
     fi
     bootstrap_target_state_bucket "$TARGET_ACCOUNT_ID" "$AWS_REGION" || return 1

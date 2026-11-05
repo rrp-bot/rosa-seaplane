@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
+source "$(dirname "${BASH_SOURCE[0]}")/pipeline-common/image-registry.sh"
+
 # =============================================================================
 # Bootstrap Central AWS Account
 # =============================================================================
@@ -399,8 +401,12 @@ terraform init -reconfigure \
 # Keep resolved account descriptors in a JSON variable file rather than
 # interpolating configuration values into HCL. Terraform loads it for import,
 # plan, apply, and subsequent teardown from this checkout.
-if ! CONFIG_PLATFORM_IMAGE=$(jq -er '.platform_image // empty' "${RESOURCE_CONFIG_DIR}/regional-cluster.json"); then
+if ! CONFIG_PLATFORM_IMAGE_REF=$(jq -er '.platform_image // empty' "${RESOURCE_CONFIG_DIR}/regional-cluster.json"); then
     echo "ERROR: platform_image is missing from ${RESOURCE_CONFIG_DIR}/regional-cluster.json" >&2
+    exit 1
+fi
+if ! CONFIG_PLATFORM_IMAGE=$(resolve_platform_image "$CONFIG_PLATFORM_IMAGE_REF" "$REGION"); then
+    echo "ERROR: Failed to resolve platform_image from SSM-backed image registry" >&2
     exit 1
 fi
 jq -n --argjson regional_cluster "$REGIONAL_CLUSTER" \

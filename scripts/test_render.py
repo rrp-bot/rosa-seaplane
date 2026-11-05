@@ -2046,6 +2046,46 @@ class TestMainIntegration:
         assert rc_input["image_registry_account_id"] == ""
         assert mc_input["image_registry_account_id"] == ""
 
+    def test_zoa_premerge_quay_references_and_tags_flow_to_rc_and_mc(self, tmp_path):
+        deploy_dir = self._run_main(
+            tmp_path,
+            global_defaults={
+                "aws": {
+                    "account_id": "111111111111",
+                    "management_cluster_account_id": "222222222222",
+                },
+                "regional_cluster": {
+                    "zoa_lambda_image_tag": "ci-123-lambda",
+                    "zoa_runner_image_tag": "ci-123-runner",
+                    "zoa_boundary_image_tag": "ci-123-boundary",
+                    "zoa_lambda_source_image": "quay.io/rrp-dev-ci/zoa-lambda",
+                    "zoa_runner_source_image": "quay.io/rrp-dev-ci/zoa-runner",
+                    "zoa_boundary_source_image": "quay.io/rrp-dev-ci/zoa-boundary",
+                },
+            },
+            environments={
+                "ephemeral": {
+                    "defaults": {"regional_cluster": {"zoa_lambda_api_concurrency": -1}},
+                    "regions": {"us-east-1": {"provision_mcs": {"mc01": {}}}},
+                }
+            },
+        )
+
+        region_dir = deploy_dir / "ephemeral" / "us-east-1"
+        rc = json.loads((region_dir / "pipeline-regional-cluster-inputs/terraform.json").read_text())
+        mc = json.loads((region_dir / "pipeline-management-cluster-mc01-inputs/terraform.json").read_text())
+        assert rc["zoa_lambda_source_image"] == "quay.io/rrp-dev-ci/zoa-lambda"
+        assert rc["zoa_lambda_image_tag"] == "ci-123-lambda"
+        assert rc["zoa_runner_source_image"] == "quay.io/rrp-dev-ci/zoa-runner"
+        assert rc["zoa_runner_image_tag"] == "ci-123-runner"
+        assert rc["zoa_boundary_source_image"] == "quay.io/rrp-dev-ci/zoa-boundary"
+        assert rc["zoa_boundary_image_tag"] == "ci-123-boundary"
+        assert mc["zoa_lambda_image_tag"] == "ci-123-lambda"
+        assert mc["zoa_runner_source_image"] == "quay.io/rrp-dev-ci/zoa-runner"
+        assert mc["zoa_runner_image_tag"] == "ci-123-runner"
+        assert mc["zoa_boundary_source_image"] == "quay.io/rrp-dev-ci/zoa-boundary"
+        assert mc["zoa_boundary_image_tag"] == "ci-123-boundary"
+
     def test_argocd_bootstrap_pinned_revision(self, tmp_path):
         deploy_dir = self._run_main(
             tmp_path,
@@ -3151,6 +3191,63 @@ fi
         )
         assert '"$RC_CONFIG_FILE"' in rc
         assert '"$DEPLOY_CONFIG_FILE"' in mc
+
+    def test_platform_image_reference_uses_ssm_account_without_hardcoding(self, tmp_path):
+        trace_file = tmp_path / "aws-trace.log"
+        helper = PROJECT_ROOT / "scripts/pipeline-common/image-registry.sh"
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                r'''
+source "$IMAGE_REGISTRY_HELPER"
+aws() {
+  printf '%s\n' "$*" >> "$TRACE_FILE"
+  printf '123456789012'
+}
+resolve_platform_image rosa-seaplane-ci:abc123 us-east-1
+''',
+            ],
+            cwd=PROJECT_ROOT,
+            env={
+                **os.environ,
+                "IMAGE_REGISTRY_HELPER": str(helper),
+                "TRACE_FILE": str(trace_file),
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == "123456789012.dkr.ecr.us-east-1.amazonaws.com/rosa-seaplane-ci:abc123"
+        assert "--name /infra/image-registry/account_id" in trace_file.read_text()
+
+    def test_premerge_quay_repo_is_not_prefixed_with_ecr(self):
+        template = (
+            PROJECT_ROOT
+            / "argocd/config/regional-cluster/platform-api/templates/deployment.yaml"
+        ).read_text()
+        values = (
+            PROJECT_ROOT / "argocd/config/regional-cluster/platform-api/values.yaml"
+        ).read_text()
+        assert 'contains "/" $repository' in template
+        assert "quayRepository: redhat-user-workloads/rosa-tenant/rosa-seaplane-api" in values
+
+    def test_ephemeral_defaults_do_not_mask_zoa_ci_tags(self):
+        ephemeral = yaml.safe_load((PROJECT_ROOT / "config/ephemeral/defaults.yaml").read_text())
+        regional_cluster = ephemeral.get("regional_cluster", {})
+        for key in (
+            "zoa_lambda_image_tag",
+            "zoa_runner_image_tag",
+            "zoa_boundary_image_tag",
+        ):
+            assert key not in regional_cluster
+
+    def test_zoa_lambda_remains_mirrored_from_overrideable_quay_source(self):
+        ecr = (PROJECT_ROOT / "terraform/modules/zoa/ecr.tf").read_text()
+        assert 'SRC="docker://${var.zoa_lambda_source_image}:$TAG"' in ecr
+        assert "skopeo copy --retry-times 3" in ecr
 
 
 if __name__ == "__main__":

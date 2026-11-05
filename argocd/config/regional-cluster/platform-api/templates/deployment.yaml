@@ -1,3 +1,12 @@
+{{- $repository := .Values.platformApi.app.image.repository -}}
+{{- $image := "" -}}
+{{- if contains "/" $repository -}}
+{{- $image = printf "%s:%s" $repository .Values.platformApi.app.image.tag -}}
+{{- else if .Values.global.image_registry_account_id -}}
+{{- $image = printf "%s.dkr.ecr.us-east-1.amazonaws.com/%s:%s" .Values.global.image_registry_account_id $repository .Values.platformApi.app.image.tag -}}
+{{- else -}}
+{{- $image = printf "quay.io/%s:%s" .Values.platformApi.app.image.quayRepository .Values.platformApi.app.image.tag -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -36,7 +45,7 @@ spec:
               app: {{ .Values.platformApi.app.name }}
       containers:
         - name: {{ .Values.platformApi.app.name }}
-          image: {{ .Values.platformApi.app.image.repository }}:{{ .Values.platformApi.app.image.tag }}
+          image: {{ $image | quote }}
           imagePullPolicy: {{ .Values.platformApi.app.image.pullPolicy }}
           args:
             - serve

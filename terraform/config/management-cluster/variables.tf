@@ -114,7 +114,7 @@ variable "rhobs_api_url" {
 # =============================================================================
 
 variable "zoa_lambda_ecr_url" {
-  description = "ECR repository URL for ZOA Lambda (RC output, cross-account pull via OU policy)"
+  description = "Regional ECR repository URL for ZOA Lambda (read from RC Terraform output)."
   type        = string
 
   validation {
@@ -124,7 +124,7 @@ variable "zoa_lambda_ecr_url" {
 }
 
 variable "zoa_lambda_image_tag" {
-  description = "Immutable tag for the ZOA Lambda image (used with ECR URL from RC output)."
+  description = "Immutable tag for the ZOA Lambda image in the regional ECR repository."
   type        = string
   default     = "67ef089"
 }
@@ -136,7 +136,7 @@ variable "zoa_runner_image_tag" {
 }
 
 variable "zoa_runner_source_image" {
-  description = "Source registry image for ZOA Runner (K8s pulls directly, no ECR mirror)"
+  description = "Source registry image for ZOA Runner (K8s pulls directly; no ECR mirror)."
   type        = string
   default     = "quay.io/rrp-dev-ci/zoa-runner"
 }
@@ -293,4 +293,3 @@ variable "eph_prefix" {
   type        = string
   default     = ""
 }
-
