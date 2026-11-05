@@ -21,13 +21,19 @@ This chart deploys:
 See [values.yaml](values.yaml) for all configuration options. Key settings:
 
 ```yaml
+global:
+  # The shared ECR account ID is supplied from the cluster's SSM-backed
+  # image_registry_account_id annotation by the normal ArgoCD bootstrap flow.
+  image_registry_account_id: "123456789012"
+
 platformApi:
   namespace: platform-api
 
   app:
     name: platform-api
     image:
-      repository: quay.io/cdoan0/rosa-seaplane-api
+      repository: rosa-seaplane-api
+      quayRepository: redhat-user-workloads/rosa-tenant/rosa-seaplane-api
       tag: nodb
 
   targetGroup:
@@ -112,8 +118,9 @@ kubectl delete namespace platform-api
 | ---------------------------------- | ------------------------------------ | ---------------------------------- |
 | `platformApi.namespace`            | Namespace to deploy into             | `platform-api`                     |
 | `platformApi.app.name`             | Application name                     | `platform-api`                     |
-| `platformApi.app.image.repository` | Container image repository           | `quay.io/cdoan0/rosa-seaplane-api` |
-| `platformApi.app.image.tag`        | Container image tag                  | `nodb`                             |
+| `platformApi.app.image.repository`     | Shared ECR repository name; used when the ECR account ID is present | `rosa-seaplane-api` |
+| `platformApi.app.image.quayRepository` | Original Quay path used when the ECR account ID is empty             | Set in values.yaml  |
+| `platformApi.app.image.tag`            | Container image tag                                                   | `nodb`              |
 | `platformApi.app.args.logLevel`    | Log level (debug, info, warn, error) | `info`                             |
 | `platformApi.deployment.replicas`  | Number of replicas                   | `1`                                |
 

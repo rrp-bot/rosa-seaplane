@@ -1,3 +1,16 @@
+{{- $imageValues := index (index .Values "seaplane" "helmValues") "image" -}}
+{{- $repository := index $imageValues "repository" -}}
+{{- if contains "/" $repository -}}
+  {{- /* A fully-qualified CI override (e.g. quay.io/rrp-dev-ci/...) wins over ECR templating. */ -}}
+{{- else if .Values.global.image_registry_account_id -}}
+{{- $repository = printf "%s.dkr.ecr.us-east-1.amazonaws.com/%s" .Values.global.image_registry_account_id $repository -}}
+{{- else -}}
+{{- $repository = printf "quay.io/%s" (index $imageValues "quayRepository") -}}
+{{- end -}}
+{{- $helmValues := deepCopy (index .Values "seaplane" "helmValues") -}}
+{{- $copiedImageValues := index $helmValues "image" -}}
+{{- $_ := unset $copiedImageValues "quayRepository" -}}
+{{- $_ := set $copiedImageValues "repository" $repository -}}
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -15,7 +28,7 @@ spec:
     helm:
       values: |
         {{- if index .Values "seaplane" "helmValues" }}
-        {{- toYaml (index .Values "seaplane" "helmValues") | nindent 8 }}
+        {{- toYaml $helmValues | nindent 8 }}
         {{- end }}
         awsRegion: {{ .Values.global.aws_region }}
         baseDomain: {{ .Values.baseDomain }}

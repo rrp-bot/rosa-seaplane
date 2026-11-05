@@ -89,5 +89,7 @@ print_provision_param_summary "MC ArgoCD bootstrap" \
     "OIDC_KEY_READER_ROLE_ARN" "RC derived" "${OIDC_KEY_READER_ROLE_ARN}"
 
 use_mc_account
+resolve_image_registry_account_id_from_target \
+    "$(jq -r '.image_registry_account_id // empty' "$DEPLOY_CONFIG_FILE")"
 terraform_init_backend management-cluster "${TARGET_REGION}" "${MANAGEMENT_ID}"
 bootstrap_argocd management-cluster "${TARGET_ACCOUNT_ID}"

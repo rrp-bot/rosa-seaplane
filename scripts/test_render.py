@@ -13,6 +13,7 @@
 import copy
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -1875,6 +1876,53 @@ class TestMainIntegration:
         content = appset_file.read_text()
         assert "metadata.annotations.git_revision" in content
 
+    def test_image_registry_ssm_reference_flows_to_rc_mc_and_argocd(self, tmp_path):
+        deploy_dir = self._run_main(
+            tmp_path,
+            global_defaults={
+                "aws": {
+                    "account_id": "111111111111",
+                    "management_cluster_account_id": "222222222222",
+                },
+                "image_registry_account_id": "ssm:///infra/image-registry/account_id",
+                "regional_cluster": {
+                    "zoa_lambda_image_tag": "ci-123-zoa-lambda",
+                    "zoa_runner_image_tag": "ci-123-zoa-runner",
+                    "zoa_boundary_image_tag": "ci-123-zoa-boundary",
+                    "zoa_lambda_source_image": "quay.io/rrp-dev-ci/zoa-lambda",
+                    "zoa_runner_source_image": "quay.io/rrp-dev-ci/zoa-runner",
+                    "zoa_boundary_source_image": "quay.io/rrp-dev-ci/zoa-boundary",
+                },
+            },
+            environments={
+                "staging": {
+                    "defaults": {},
+                    "regions": {"us-east-1": {"provision_mcs": {"mc01": {}}}},
+                }
+            },
+        )
+
+        region_dir = deploy_dir / "staging" / "us-east-1"
+        rc = json.loads((region_dir / "pipeline-regional-cluster-inputs/terraform.json").read_text())
+        mc = json.loads((region_dir / "pipeline-management-cluster-mc01-inputs/terraform.json").read_text())
+        assert rc["image_registry_account_id"] == "ssm:///infra/image-registry/account_id"
+        assert mc["image_registry_account_id"] == "ssm:///infra/image-registry/account_id"
+        assert rc["zoa_lambda_source_image"] == "quay.io/rrp-dev-ci/zoa-lambda"
+        assert rc["zoa_runner_source_image"] == "quay.io/rrp-dev-ci/zoa-runner"
+        assert rc["zoa_boundary_source_image"] == "quay.io/rrp-dev-ci/zoa-boundary"
+        assert rc["zoa_lambda_image_tag"] == "ci-123-zoa-lambda"
+        assert rc["zoa_runner_image_tag"] == "ci-123-zoa-runner"
+        assert rc["zoa_boundary_image_tag"] == "ci-123-zoa-boundary"
+        assert mc["zoa_lambda_image_tag"] == "ci-123-zoa-lambda"
+        assert mc["zoa_runner_source_image"] == "quay.io/rrp-dev-ci/zoa-runner"
+        assert mc["zoa_boundary_source_image"] == "quay.io/rrp-dev-ci/zoa-boundary"
+        assert mc["zoa_runner_image_tag"] == "ci-123-zoa-runner"
+        assert mc["zoa_boundary_image_tag"] == "ci-123-zoa-boundary"
+        for cluster_type in ("regional-cluster", "management-cluster"):
+            appset = (region_dir / f"argocd-bootstrap-{cluster_type}/applicationset.yaml").read_text()
+            assert "image_registry_account_id: '{{ .metadata.annotations.image_registry_account_id }}'" in appset
+
+
     def test_eph_prefix_in_regional_id(self, tmp_path):
         deploy_dir = self._run_main(
             tmp_path,
@@ -2820,6 +2868,89 @@ class TestRuntimeIdentityDelivery:
         annotation = lambda resources: _resource(resources, "Deployment", "platform-api")["spec"]["template"]["metadata"]["annotations"]
         assert annotation(before)["checksum/authz-config"] != annotation(after)["checksum/authz-config"]
         assert annotation(before)["checksum/rate-limits"] == annotation(after)["checksum/rate-limits"]
+
+
+class TestImageRegistrySSMResolution:
+    def test_ephemeral_defaults_do_not_mask_component_ci_image_tags(self):
+        ephemeral = yaml.safe_load((PROJECT_ROOT / "config/ephemeral/defaults.yaml").read_text())
+        regional_cluster = ephemeral.get("regional_cluster", {})
+
+        for key in (
+            "zoa_lambda_image_tag",
+            "zoa_runner_image_tag",
+            "zoa_boundary_image_tag",
+        ):
+            assert key not in regional_cluster
+
+    def test_platform_api_chart_accepts_full_ci_quay_override_with_ecr_enabled(self):
+        template = (
+            PROJECT_ROOT
+            / "argocd/config/regional-cluster/platform-api/templates/deployment.yaml"
+        ).read_text()
+        assert 'contains "/" $repository' in template
+
+    def _run_shell(self, tmp_path, script, ssm_result="123456789012"):
+        trace_file = tmp_path / "aws-trace.log"
+        env = {
+            **os.environ,
+            "TRACE_FILE": str(trace_file),
+            "SSM_RESULT": ssm_result,
+            "IMAGE_REGISTRY_HELPER": str(PROJECT_ROOT / "scripts/pipeline-common/image-registry.sh"),
+        }
+        result = subprocess.run(
+            ["bash", "-c", 'source "$IMAGE_REGISTRY_HELPER"; ' + script],
+            cwd=PROJECT_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return result, trace_file.read_text().splitlines() if trace_file.exists() else []
+
+    def test_target_registry_and_platform_image_resolution(self, tmp_path):
+        result, trace = self._run_shell(
+            tmp_path,
+            r'''
+aws() {
+  printf '%s\n' "$*" >> "$TRACE_FILE"
+  printf '%s' "$SSM_RESULT"
+}
+TARGET_REGION=us-west-2
+resolve_image_registry_account_id_from_target "ssm:///infra/image-registry/account_id"
+printf 'registry=%s\n' "$IMAGE_REGISTRY_ACCOUNT_ID"
+printf 'platform=%s\n' "$(resolve_platform_image rosa-seaplane-ci:abc123 us-east-1)"
+''',
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert "registry=123456789012" in result.stdout
+        assert "platform=123456789012.dkr.ecr.us-east-1.amazonaws.com/rosa-seaplane-ci:abc123" in result.stdout
+        assert any("--region us-west-2" in line for line in trace)
+        assert any("--region us-east-1" in line for line in trace)
+
+    def test_target_ssm_registry_id_must_be_valid(self, tmp_path):
+        result, _ = self._run_shell(
+            tmp_path,
+            r'''
+aws() { printf '%s' "$SSM_RESULT"; }
+TARGET_REGION=us-east-1
+resolve_image_registry_account_id_from_target "ssm:///infra/image-registry/account_id"
+''',
+            ssm_result="not-an-account-id",
+        )
+
+        assert result.returncode != 0
+        assert "must contain a 12-digit AWS account ID" in result.stderr
+
+    def test_zoa_infra_keeps_quay_overrides_and_lambda_mirroring(self):
+        rc = (PROJECT_ROOT / "scripts/buildspec/provision-infra-rc.sh").read_text()
+        mc = (PROJECT_ROOT / "scripts/buildspec/provision-infra-mc.sh").read_text()
+        ecr = (PROJECT_ROOT / "terraform/modules/zoa/ecr.tf").read_text()
+
+        for script in (rc, mc):
+            assert "resolve_registry_image_reference" not in script
+        assert 'SRC="docker://${var.zoa_lambda_source_image}:$TAG"' in ecr
+        assert "skopeo copy --retry-times 3" in ecr
 
 
 if __name__ == "__main__":

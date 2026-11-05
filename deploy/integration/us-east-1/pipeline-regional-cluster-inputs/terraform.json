@@ -26,6 +26,7 @@
   "sre_prometheus_oidc_client_id": "rrp-prometheus-sre-int-us-east-1",
   "sre_thanos_oidc_client_id": "rrp-thanos-sre-int-us-east-1",
   "environment_domain": "int0.rosa.devshift.org",
+  "image_registry_account_id": "ssm:///infra/image-registry/account_id",
   "regional_id": "regional",
   "eph_prefix": "",
   "seaplane_db_instance_class": "db.r6g.large",

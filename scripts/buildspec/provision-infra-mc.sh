@@ -157,15 +157,14 @@ else
     TF_VAR_zoa_access_lambda_role_arn=$(tf_read_output "$_RC_TF_DIR" zoa_access_lambda_role_arn '^arn:')
     export TF_VAR_zoa_access_lambda_role_arn
 
+    TF_VAR_zoa_lambda_ecr_url=$(tf_read_output "$_RC_TF_DIR" zoa_lambda_ecr_url)
+    export TF_VAR_zoa_lambda_ecr_url
+
     TF_VAR_zoa_uploader_role_arn=$(tf_read_output "$_RC_TF_DIR" zoa_uploader_role_arn '^arn:')
     export TF_VAR_zoa_uploader_role_arn
 
     TF_VAR_zoa_data_access_role_arn=$(tf_read_output "$_RC_TF_DIR" zoa_data_access_role_arn '^arn:')
     export TF_VAR_zoa_data_access_role_arn
-
-    # Lambda image lives in RC's ECR (cross-account pull via OU policy).
-    TF_VAR_zoa_lambda_ecr_url=$(tf_read_output "$_RC_TF_DIR" zoa_lambda_ecr_url)
-    export TF_VAR_zoa_lambda_ecr_url
 
     require_nonempty_vars "MC RC dependency" \
         TF_VAR_oidc_cloudfront_domain TF_VAR_oidc_bucket_name \
@@ -244,8 +243,8 @@ print_provision_param_summary "MC" \
     "RC_STATE_KEY" "RC state" "${_RC_STATE_KEY:-<destroy-placeholder>}" \
     "oidc_cloudfront_domain" "RC state" "${TF_VAR_oidc_cloudfront_domain:-}" \
     "oidc_bucket_arn" "RC state" "${TF_VAR_oidc_bucket_arn:-}" \
-    "zoa_lambda_ecr_url" "RC state" "${TF_VAR_zoa_lambda_ecr_url:-}" \
     "zoa_lambda_image_tag" "config" "${_ZOA_LAMBDA_IMAGE_TAG}" \
+    "zoa_lambda_ecr_url" "RC state" "${TF_VAR_zoa_lambda_ecr_url:-}" \
     "TF_STATE_BUCKET" "runtime" "${TF_STATE_BUCKET}" \
     "TF_STATE_KEY" "runtime" "${TF_STATE_KEY}"
 

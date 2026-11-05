@@ -1,3 +1,7 @@
+global:
+  # Supplied by the ArgoCD cluster identity annotation; registry is ECR us-east-1.
+  image_registry_account_id: ""
+
 seaplane:
   applicationName: seaplane-operator
 
@@ -19,7 +23,10 @@ seaplane:
 
   helmValues:
     image:
-      repository: quay.io/redhat-user-workloads/rosa-tenant/rosa-seaplane-operator
+      repository: rosa-seaplane-operator
+      # Preserve the original source path for deployments where the registry
+      # account annotation is intentionally absent.
+      quayRepository: redhat-user-workloads/rosa-tenant/rosa-seaplane-operator
       tag: "e6cb96b90c0618d0760c8e8f5ba3bfc248082952@sha256:ecbc10e6618c4bc40ee0b641f99c7cab34977f272dd1ce246e7f96620034fb00"
       pullPolicy: Always
 
@@ -37,4 +44,3 @@ seaplane:
       requests:
         cpu: 100m
         memory: 128Mi
-

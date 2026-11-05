@@ -47,9 +47,9 @@ regional_cluster:
   zoa_lambda_api_concurrency: -1
   zoa_lambda_worker_concurrency: -1
   zoa_lambda_access_concurrency: -1
-  zoa_lambda_image_tag: "f8fb152"
-  zoa_runner_image_tag: "f8fb152"
-  zoa_boundary_image_tag: "f8fb152"
+  # Keep ZOA image tags inherited from config/defaults.yaml. The pre-merge e2e
+  # workflow deep-merges PR-built tags into that file before rendering; values
+  # here would take precedence and hide those test overrides.
 
 applications:
   regional-cluster:

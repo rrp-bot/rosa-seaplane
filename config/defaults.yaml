@@ -28,10 +28,15 @@ git:
 # @used-by deployment_name pipeline-regional-cluster-inputs/terraform.json.j2
 deployment_name: "{{ aws_region }}"
 
-# @doc platform_image Platform container image, built by Konflux from terraform/modules/platform-image/Dockerfile and shared from ECR. Runs the RC/MC CodeBuild projects and the ECS bootstrap, bastion, and log-collection tasks.
+# @doc image_registry_account_id AWS account ID that owns the shared private image registry. Stored at /infra/image-registry/account_id in the central, RC, and MC accounts.
+# @used-by image_registry_account_id pipeline-management-cluster-inputs/terraform.json.j2
+# @used-by image_registry_account_id pipeline-regional-cluster-inputs/terraform.json.j2
+image_registry_account_id: "ssm:///infra/image-registry/account_id"
+
+# @doc platform_image Platform container image reference (repository:tag), built by Konflux from terraform/modules/platform-image/Dockerfile and shared from ECR. Runs the RC/MC CodeBuild projects and ECS bootstrap, bastion, and log-collection tasks.
 # @used-by platform_image pipeline-provisioner-inputs/regional-cluster.json.j2
 # @used-by platform_image pipeline-provisioner-inputs/management-cluster.json.j2
-platform_image: "669421954122.dkr.ecr.us-east-1.amazonaws.com/rosa-seaplane-ci:73edae04747b6a448843db403fc938060aac4bca"
+platform_image: "rosa-seaplane-ci:73edae04747b6a448843db403fc938060aac4bca"
 
 aws:
   # @doc aws.account_id Regional AWS account ID.
@@ -165,10 +170,10 @@ regional_cluster:
   # @used-by regional_cluster.zoa_runner_image_tag pipeline-management-cluster-inputs/terraform.json.j2
   # @used-by regional_cluster.zoa_runner_image_tag pipeline-regional-cluster-inputs/terraform.json.j2
   zoa_runner_image_tag: "f8fb152"
-  # @doc regional_cluster.zoa_lambda_source_image Source registry image for the ZOA Lambda (mirrored to ECR at deploy time). Override together with zoa_lambda_image_tag when pointing at a fork or CI registry (e.g. quay.io/rrp-dev-ci/zoa-lambda).
+  # @doc regional_cluster.zoa_lambda_source_image Quay source image for ZOA Lambda, mirrored into the regional ECR repository at deploy time. Override together with zoa_lambda_image_tag for CI e2e or fork testing.
   # @used-by regional_cluster.zoa_lambda_source_image pipeline-regional-cluster-inputs/terraform.json.j2
   zoa_lambda_source_image: "quay.io/rrp-dev-ci/zoa-lambda"
-  # @doc regional_cluster.zoa_runner_source_image Source registry image for the ZOA Runner (pulled directly by K8s, no ECR mirror). Override together with zoa_runner_image_tag when pointing at a fork or CI registry.
+  # @doc regional_cluster.zoa_runner_source_image Quay source image for the ZOA Runner, pulled directly by K8s without mirroring. Override together with zoa_runner_image_tag for CI e2e or fork testing.
   # @used-by regional_cluster.zoa_runner_source_image pipeline-management-cluster-inputs/terraform.json.j2
   # @used-by regional_cluster.zoa_runner_source_image pipeline-regional-cluster-inputs/terraform.json.j2
   zoa_runner_source_image: "quay.io/rrp-dev-ci/zoa-runner"
@@ -176,7 +181,7 @@ regional_cluster:
   # @used-by regional_cluster.zoa_boundary_image_tag pipeline-management-cluster-inputs/terraform.json.j2
   # @used-by regional_cluster.zoa_boundary_image_tag pipeline-regional-cluster-inputs/terraform.json.j2
   zoa_boundary_image_tag: "f8fb152"
-  # @doc regional_cluster.zoa_boundary_source_image Source registry image for ZOA Boundary (pulled directly by ECS). Override together with zoa_boundary_image_tag when pointing at a fork or CI registry.
+  # @doc regional_cluster.zoa_boundary_source_image Quay source image for ZOA Boundary, pulled directly by ECS without mirroring. Override together with zoa_boundary_image_tag for CI e2e or fork testing.
   # @used-by regional_cluster.zoa_boundary_source_image pipeline-management-cluster-inputs/terraform.json.j2
   # @used-by regional_cluster.zoa_boundary_source_image pipeline-regional-cluster-inputs/terraform.json.j2
   zoa_boundary_source_image: "quay.io/rrp-dev-ci/zoa-boundary"

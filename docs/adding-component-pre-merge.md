@@ -77,6 +77,10 @@ ROSA_REGIONAL_HELM_OVERRIDE_YAML: |
 ```
 
 `IMAGE_REPO` and `IMAGE_TAG` are replaced at runtime with the actual image pushed by the image-push step.
+For the platform-api chart, a repository value containing a registry/path (such
+as `quay.io/rrp-dev-ci/rosa-seaplane-api`) is used as-is; only a short
+repository name is composed with the SSM-selected ECR registry. This keeps the
+pre-merge Quay override working.
 
 ### Chart version override example
 
