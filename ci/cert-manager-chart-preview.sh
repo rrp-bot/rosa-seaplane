@@ -5,7 +5,9 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT_DIR"
 
 BASE_REF=${BASE_REF:-${PULL_BASE_SHA:-HEAD}}
+CANDIDATE_REF=${CANDIDATE_REF:-${PULL_PULL_SHA:-HEAD}}
 git rev-parse --verify "$BASE_REF^{commit}" >/dev/null
+git rev-parse --verify "$CANDIDATE_REF^{commit}" >/dev/null
 
 SUBMODULE_PATH=argocd/config/shared/cert-manager/upstream
 CHART_PATH=deploy/charts/cert-manager
@@ -18,7 +20,7 @@ gitlink_sha() {
 }
 
 old_sha=$(gitlink_sha "$BASE_REF")
-new_sha=$(gitlink_sha HEAD)
+new_sha=$(gitlink_sha "$CANDIDATE_REF")
 index_sha=$(git ls-files --stage -- "$SUBMODULE_PATH" | awk '$1 == "160000" && $3 == "0" { print $2 }')
 if [[ -n $index_sha && $index_sha != "$old_sha" ]]; then
   new_sha=$index_sha
@@ -87,4 +89,9 @@ if [[ $diff_status -eq 0 ]]; then
   echo "No rendered manifest changes after Kustomize patches."
 elif [[ $diff_status -ne 1 ]]; then
   exit "$diff_status"
+fi
+
+if [[ ${REQUIRE_CHART_APPROVAL:-0} == 1 ]]; then
+  echo "❌ Cert-manager chart source changed; an authorized Prow override is required after review."
+  exit 1
 fi

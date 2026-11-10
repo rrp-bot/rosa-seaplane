@@ -128,6 +128,7 @@ terraform-validate: terraform-init ## Check formatting and validate all Terrafor
 	@echo "✅ Terraform validation complete"
 
 .PHONY: cert-manager-chart-preview
+.PHONY: cert-manager-chart-approval
 
 # Global values (aws_region, environment, cluster_type) are injected by the
 # ApplicationSet at deploy time, so we supply stubs here for linting.
@@ -145,11 +146,13 @@ helm-lint: ## Lint all Helm charts
 		echo "❌ Helm lint failed for one or more charts"; \
 		exit 1; \
 	fi
-	@$(MAKE) cert-manager-chart-preview
 	@echo "✅ Helm lint complete"
 
 cert-manager-chart-preview: ## Compare patched cert-manager renders when its submodule changes
 	@./ci/cert-manager-chart-preview.sh
+
+cert-manager-chart-approval: ## Review and gate cert-manager chart submodule updates
+	@./ci/cert-manager-chart-approval.sh
 
 check-rendered-files: ## Verify deploy/ is up to date with config.yaml
 	@echo "🔍 Rendering deploy/ from config.yaml..."
