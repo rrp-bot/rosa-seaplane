@@ -40,7 +40,7 @@ This change does not touch `reposerver.enable.git.submodule`, which stays as con
 
 [`ci/check-submodule-fetch-config.sh`](check-submodule-fetch-config.sh) guards the setting. It is offline and hermetic — it builds throwaway fixture repositories in a temp directory and replays the clonerefs command sequence against them. It runs as part of the `unit-tests` job and of `make pre-push`, and can be run directly with `make check-submodule-fetch-config`.
 
-When a PR changes the cert-manager submodule pin, `helm-lint` also runs [`ci/cert-manager-chart-preview.sh`](cert-manager-chart-preview.sh). It checks whether `deploy/charts/cert-manager/` changed between the old and new submodule commits. For chart changes, it builds both chart trees with the current values and Kustomize patches, then prints the rendered-manifest diff in the Prow job log. A Kustomize/Helm render failure (including a patch that no longer matches) fails the check. To run it locally, use `BASE_REF=<base-branch-or-commit> make cert-manager-chart-preview`.
+MintMaker's `git-submodules` post-upgrade task and the Prow `helm-lint` check run [`ci/cert-manager-chart-preview.sh`](cert-manager-chart-preview.sh) for cert-manager pin changes. It checks whether `deploy/charts/cert-manager/` changed between the old and new submodule commits. For chart changes, it builds both chart trees with the current values and Kustomize patches, then prints the rendered-manifest diff. A Kustomize/Helm render failure (including a patch that no longer matches) fails the check. To run it locally, use `BASE_REF=<base-branch-or-commit> make cert-manager-chart-preview`. MintMaker must allowlist this command and provide `kubectl` with Helm support and `helm` in its task environment.
 
 ## Load Testing (Planned)
 

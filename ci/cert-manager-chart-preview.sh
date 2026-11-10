@@ -4,11 +4,7 @@ set -euo pipefail
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT_DIR"
 
-BASE_REF=${BASE_REF:-${PULL_BASE_SHA:-}}
-if [[ -z $BASE_REF ]]; then
-  echo "ℹ️  Skipping cert-manager chart preview (set BASE_REF or run in a Prow PR job)"
-  exit 0
-fi
+BASE_REF=${BASE_REF:-${PULL_BASE_SHA:-HEAD}}
 git rev-parse --verify "$BASE_REF^{commit}" >/dev/null
 
 SUBMODULE_PATH=argocd/config/shared/cert-manager/upstream
@@ -23,8 +19,17 @@ gitlink_sha() {
 
 old_sha=$(gitlink_sha "$BASE_REF")
 new_sha=$(gitlink_sha HEAD)
+index_sha=$(git ls-files --stage -- "$SUBMODULE_PATH" | awk '$1 == "160000" && $3 == "0" { print $2 }')
+if [[ -n $index_sha && $index_sha != "$old_sha" ]]; then
+  new_sha=$index_sha
+elif [[ -e "$SUBMODULE_DIR/.git" ]]; then
+  checkout_sha=$(git -C "$SUBMODULE_DIR" rev-parse --verify HEAD 2>/dev/null || true)
+  if [[ -n $checkout_sha && $checkout_sha != "$old_sha" ]]; then
+    new_sha=$checkout_sha
+  fi
+fi
 if [[ -z $old_sha || -z $new_sha ]]; then
-  echo "ℹ️  Skipping chart preview until both $BASE_REF and HEAD contain the cert-manager submodule"
+  echo "ℹ️  Skipping chart preview until both $BASE_REF and the candidate contain the cert-manager submodule"
   exit 0
 fi
 if [[ $old_sha == "$new_sha" ]]; then
