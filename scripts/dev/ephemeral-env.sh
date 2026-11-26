@@ -1014,11 +1014,12 @@ cmd_bastion_port_forward() {
     local loki="loki          - Loki Query Frontend (platform logs)"
     local alertmanager="alertmanager  - AlertManager Web UI"
     local grafana="grafana       - Grafana Dashboard"
+    local karpenter="karpenter     - Karpenter metrics and pprof profiling"
     local custom="custom        - Custom service / ports"
 
     # custom services are added only for interactive
-    local regional_svc_list=("$argocd" "$prometheus" "$thanos" "$loki" "$alertmanager" "$grafana")
-    local management_svc_list=("$argocd" "$prometheus")
+    local regional_svc_list=("$argocd" "$prometheus" "$thanos" "$loki" "$alertmanager" "$grafana" "$karpenter")
+    local management_svc_list=("$argocd" "$prometheus" "$karpenter")
 
     local services
 
@@ -1074,6 +1075,11 @@ cmd_bastion_port_forward() {
         grafana)
             forwards+=(
             "Grafana 3000 3000 grafana grafana 80"
+            )
+            ;;
+        karpenter)
+            forwards+=(
+            "Karpenter 8080 8080 karpenter karpenter 8080"
             )
             ;;
         custom)
@@ -1199,6 +1205,9 @@ cmd_bastion_port_forward() {
         read -r label _ local_port _ _ _ <<< "$entry"
         echo "    ${label}: http://localhost:${local_port}"
     done
+    if [[ " $services " =~ " karpenter " ]]; then
+        echo "    Karpenter pprof: http://localhost:8080/debug/pprof/"
+    fi
 
     # For ArgoCD, fetch and display the admin password from the bastion.
     # Use a marker prefix so we can extract the password from the SSM session noise.
