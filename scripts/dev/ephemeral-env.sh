@@ -1146,6 +1146,33 @@ cmd_bastion_port_forward() {
     echo "    ECS cluster: $ecs_cluster"
     echo "    Task ID:     $task_id"
     echo ""
+
+    local karpenter_pod=""
+    if [[ " $services " =~ " karpenter " ]]; then
+        echo "==> Finding running Karpenter pods..."
+        local karpenter_pod_output karpenter_pods selected_karpenter_pod
+        karpenter_pod_output=$(aws ecs execute-command \
+            --cluster "$ecs_cluster" \
+            --task "$task_id" \
+            --container bastion \
+            --interactive \
+            --command "sh -c \"echo KARPENTER_PODS_START; kubectl get pods -n karpenter -l app.kubernetes.io/name=karpenter --field-selector=status.phase=Running -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[0].ready --no-headers; echo KARPENTER_PODS_END\"" 2>/dev/null) \
+            || die "Failed to list Karpenter pods through the bastion."
+        karpenter_pods=$(printf '%s\n' "$karpenter_pod_output" \
+            | sed -n '/KARPENTER_PODS_START/,/KARPENTER_PODS_END/p' \
+            | sed '1d;$d' \
+            | sed 's/\r$//' \
+            | sed '/^[[:space:]]*$/d')
+        [[ -n "$karpenter_pods" ]] \
+            || die "No running Karpenter pods found in namespace karpenter."
+
+        selected_karpenter_pod=$(printf '%s\n' "$karpenter_pods" \
+            | fzf --height=10 --layout=reverse --header="Select Karpenter pod for metrics/pprof" --no-info) \
+            || { echo "Aborted."; exit 1; }
+        karpenter_pod=$(awk '{print $1}' <<< "$selected_karpenter_pod")
+        echo "==> Selected Karpenter pod: ${karpenter_pod}"
+    fi
+
     echo "==> Connecting to bastion..."
     echo ""
 
@@ -1183,14 +1210,18 @@ cmd_bastion_port_forward() {
     # The ECS exec session is short-lived but kubectl keeps running in the container.
     for entry in "${forwards[@]}"; do
         read -r label remote_port local_port k8s_svc k8s_ns k8s_svc_port <<< "$entry"
+        local k8s_resource="svc/${k8s_svc}"
+        if [[ "$label" == "Karpenter" ]]; then
+            k8s_resource="pod/${karpenter_pod}"
+        fi
 
-        echo "==> [bastion] kubectl port-forward svc/${k8s_svc} ${remote_port}:${k8s_svc_port} -n ${k8s_ns}"
+        echo "==> [bastion] kubectl port-forward ${k8s_resource} ${remote_port}:${k8s_svc_port} -n ${k8s_ns}"
         aws ecs execute-command \
             --cluster "$ecs_cluster" \
             --task "$task_id" \
             --container bastion \
             --interactive \
-            --command "kubectl port-forward svc/${k8s_svc} ${remote_port}:${k8s_svc_port} -n ${k8s_ns} --address 0.0.0.0" &
+            --command "kubectl port-forward ${k8s_resource} ${remote_port}:${k8s_svc_port} -n ${k8s_ns} --address 0.0.0.0" &
         bastion_pids+=($!)
     done
 
