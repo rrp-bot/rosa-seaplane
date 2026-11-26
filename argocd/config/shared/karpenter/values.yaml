@@ -31,6 +31,9 @@ karpenter:
           app.kubernetes.io/name: karpenter
 
   controller:
+    env:
+      - name: ENABLE_PROFILING
+        value: "true"
     resources:
       requests:
         cpu: 100m
