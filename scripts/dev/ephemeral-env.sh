@@ -62,12 +62,13 @@ usage_bastion_interactive() {
 }
 
 usage_port_forward() {
-    echo "Usage: $0 port-forward --cluster-type [value] <additional flags>"
+    echo "Usage: $0 port-forward --cluster-type [value] [--all | --service <name>]"
     echo ""
     echo "Opens Port Forwards to the various services that are running on a cluster in the ephemeral env"
     echo ""
     echo "Flags:"
     echo "  --all           Automatically open all port forwards to the various services"
+    echo "  --service       Open a specific service (e.g. karpenter)"
     echo "  --cluster-type  Defines which cluster type to connect to. Accepted values are \"regional\" or \"management\""
 }
 
@@ -984,10 +985,14 @@ cmd_bastion_interactive() {
 cmd_bastion_port_forward() {
     local all_svcs=false
     local cluster_type
+    local service=""
 
     while [ "${1:-}" != "" ]; do
     case $1 in
         --all )                 all_svcs=true
+                                ;;
+        --service )             service=${2:-}
+                                shift
                                 ;;
         --cluster-type )        cluster_type=${2:-}
                                 shift
@@ -1007,6 +1012,11 @@ cmd_bastion_port_forward() {
       regional|management) ;;
       *) echo "Error: invalid cluster type '$cluster_type'"; echo ""; usage_port_forward; exit 1 ;;
     esac
+    if [[ "$all_svcs" == true && -n "$service" ]]; then
+        echo "Error: --all and --service cannot be used together."
+        usage_port_forward
+        exit 1
+    fi
 
     local argocd="argocd        - ArgoCD server HTTPS"
     local prometheus="prometheus    - Prometheus Monitoring Dashboard"
@@ -1029,6 +1039,8 @@ cmd_bastion_port_forward() {
             regional )      services=$(printf '%s\n' "${regional_svc_list[@]}") ;;
             management )    services=$(printf '%s\n' "${management_svc_list[@]}") ;;
         esac
+    elif [[ -n "$service" ]]; then
+        services="$service"
     else
         # otherwise, prompt the user
         if [ "$cluster_type" = "regional" ]; then
