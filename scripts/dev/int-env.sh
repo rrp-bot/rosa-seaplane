@@ -59,7 +59,7 @@ usage_port_forward() {
     echo ""
     echo "Flags:"
     echo "  --all              Automatically open all port forwards"
-    echo "  --service <name>   Forward a specific service (argocd, prometheus, loki, grafana)"
+    echo "  --service <name>   Forward a specific service (argocd, prometheus, loki, grafana, karpenter)"
     echo "  --cluster-type     Cluster type: \"regional\" or \"management\""
 }
 
@@ -285,9 +285,10 @@ cmd_port_forward() {
     local prometheus="prometheus  - Prometheus Monitoring Dashboard"
     local loki="loki      - Loki Query Frontend (platform logs)"
     local grafana="grafana   - Grafana Dashboard"
+    local karpenter="karpenter - Karpenter metrics and pprof profiling"
 
-    local regional_svc_list=("$argocd" "$prometheus" "$loki" "$grafana")
-    local management_svc_list=("$argocd" "$prometheus")
+    local regional_svc_list=("$argocd" "$prometheus" "$loki" "$grafana" "$karpenter")
+    local management_svc_list=("$argocd" "$prometheus" "$karpenter")
 
     local services
 
@@ -336,6 +337,11 @@ cmd_port_forward() {
             "Grafana 3000 3000 grafana grafana 80"
             )
             ;;
+        karpenter)
+            forwards+=(
+            "Karpenter 8080 8080 karpenter karpenter 8080"
+            )
+            ;;
         *) echo "Error: unknown service '$service'"; exit 1 ;;
         esac
     done
@@ -370,6 +376,33 @@ cmd_port_forward() {
     echo "    ECS cluster: $ecs_cluster"
     echo "    Task ID:     $task_id"
     echo ""
+
+    local karpenter_pod=""
+    if [[ " $services " =~ " karpenter " ]]; then
+        echo "==> Finding running Karpenter pods..."
+        local karpenter_pod_output karpenter_pods selected_karpenter_pod
+        karpenter_pod_output=$(aws ecs execute-command \
+            --cluster "$ecs_cluster" \
+            --task "$task_id" \
+            --container bastion \
+            --interactive \
+            --command "sh -c \"echo KARPENTER_PODS_START; kubectl get pods -n karpenter -l app.kubernetes.io/name=karpenter --field-selector=status.phase=Running -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[0].ready --no-headers; echo KARPENTER_PODS_END\"" 2>/dev/null) \
+            || die "Failed to list Karpenter pods through the bastion."
+        karpenter_pods=$(printf '%s\n' "$karpenter_pod_output" \
+            | sed -n '/KARPENTER_PODS_START/,/KARPENTER_PODS_END/p' \
+            | sed '1d;$d' \
+            | sed 's/\r$//' \
+            | sed '/^[[:space:]]*$/d')
+        [[ -n "$karpenter_pods" ]] \
+            || die "No running Karpenter pods found in namespace karpenter."
+
+        selected_karpenter_pod=$(printf '%s\n' "$karpenter_pods" \
+            | fzf --height=10 --layout=reverse --header="Select Karpenter pod for metrics/pprof" --no-info) \
+            || { echo "Aborted."; exit 1; }
+        karpenter_pod=$(awk '{print $1}' <<< "$selected_karpenter_pod")
+        echo "==> Selected Karpenter pod: ${karpenter_pod}"
+    fi
+
     echo "==> Connecting to bastion..."
     echo ""
 
@@ -407,14 +440,18 @@ cmd_port_forward() {
     # Start kubectl port-forward(s) inside the bastion
     for entry in "${forwards[@]}"; do
         read -r label remote_port local_port k8s_svc k8s_ns k8s_svc_port <<< "$entry"
+        local k8s_resource="svc/${k8s_svc}"
+        if [[ "$label" == "Karpenter" ]]; then
+            k8s_resource="pod/${karpenter_pod}"
+        fi
 
-        echo "==> [bastion] kubectl port-forward svc/${k8s_svc} ${remote_port}:${k8s_svc_port} -n ${k8s_ns}"
+        echo "==> [bastion] kubectl port-forward ${k8s_resource} ${remote_port}:${k8s_svc_port} -n ${k8s_ns}"
         aws ecs execute-command \
             --cluster "$ecs_cluster" \
             --task "$task_id" \
             --container bastion \
             --interactive \
-            --command "kubectl port-forward svc/${k8s_svc} ${remote_port}:${k8s_svc_port} -n ${k8s_ns} --address 0.0.0.0" &
+            --command "kubectl port-forward ${k8s_resource} ${remote_port}:${k8s_svc_port} -n ${k8s_ns} --address 0.0.0.0" &
         bastion_pids+=($!)
     done
 
@@ -440,6 +477,10 @@ cmd_port_forward() {
         read -r label _ local_port _ _ _ <<< "$entry"
         echo "    ${label}: http://localhost:${local_port}"
     done
+    if [[ " $services " =~ " karpenter " ]]; then
+        echo "    Karpenter pod: ${karpenter_pod}"
+        echo "    Karpenter pprof: http://localhost:8080/debug/pprof/"
+    fi
 
     # For ArgoCD, fetch and display the admin password from the bastion.
     if [[ " $services " =~ " argocd " ]]; then
